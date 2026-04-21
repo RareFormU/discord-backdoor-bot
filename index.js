@@ -132,28 +132,31 @@ async function poll() {
 }
 
 // ── Build Discord embed (v3 intelligence format) ───────────────────────────────
+// HEADLINE → title | sections → fields | confidence + signal → footer
 function buildEmbed(alert) {
   const signal = alert.signal_type || 'UNKNOWN';
   const meta   = SIGNAL_META[signal] || DEFAULT_META;
 
   const conf    = alert.confidence || 0;
   const confPct = Math.round(conf * 100);
-  const confBar = '█'.repeat(Math.floor(confPct / 10)) + '░'.repeat(10 - Math.floor(confPct / 10));
+  const confBar = '\u2588'.repeat(Math.floor(confPct / 10)) + '\u2591'.repeat(10 - Math.floor(confPct / 10));
 
-  const asset      = alert.asset ? ` — ${alert.asset}` : '';
+  const asset      = alert.asset ? ` [${alert.asset}]` : '';
+  const headline   = (alert.headline || 'Intelligence Signal').slice(0, 256);
   const disclaimer = alert.disclaimer || 'This is truth and knowledge, not investment advice.';
 
   const embed = new EmbedBuilder()
     .setColor(meta.color)
-    .setTitle(`${meta.emoji} ${meta.label}${asset}`)
-    .setDescription(`**${alert.headline || 'Intelligence Signal'}**`)
-    .setFooter({ text: 'RareForm United — Backdoor Vision · rareformu.io/#backdoor' })
+    .setTitle(`${meta.emoji} ${headline}`)
+    .setFooter({
+      text: `${confPct}% confidence  |  ${meta.label}${asset}  |  RareForm United — rareformu.io`,
+    })
     .setTimestamp(alert.timestamp ? new Date(alert.timestamp) : new Date());
 
   if (alert.before_the_move) {
     embed.addFields({
       name:   '📍 BEFORE THE MOVE',
-      value:  alert.before_the_move.slice(0, 1000),
+      value:  alert.before_the_move.slice(0, 1024),
       inline: false,
     });
   }
@@ -161,7 +164,7 @@ function buildEmbed(alert) {
   if (alert.the_truth) {
     embed.addFields({
       name:   '🔎 THE TRUTH',
-      value:  alert.the_truth.slice(0, 1000),
+      value:  alert.the_truth.slice(0, 1024),
       inline: false,
     });
   }
@@ -169,26 +172,18 @@ function buildEmbed(alert) {
   if (alert.what_it_means) {
     embed.addFields({
       name:   '⚡ WHAT IT MEANS',
-      value:  alert.what_it_means.slice(0, 1000),
+      value:  alert.what_it_means.slice(0, 1024),
       inline: false,
     });
   }
 
-  embed.addFields(
-    { name: 'CONFIDENCE', value: `${confPct}%  \`${confBar}\``, inline: true },
-    { name: 'SIGNAL',     value: `\`${signal}\``,               inline: true },
-  );
-
   const src = alert.source_data || {};
-  if (src.platform) {
-    embed.addFields({ name: 'PLATFORM', value: src.platform, inline: true });
-  }
   if (src.url) {
-    embed.addFields({ name: 'SOURCE', value: src.url.slice(0, 200), inline: false });
+    embed.addFields({ name: 'SOURCE', value: src.url.slice(0, 512), inline: false });
   }
 
   embed.addFields({
-    name:   '⚠️ DISCLAIMER',
+    name:   '\u26a0\ufe0f DISCLAIMER',
     value:  `*${disclaimer}*`,
     inline: false,
   });
@@ -204,29 +199,28 @@ function buildText(alert) {
   const asset   = alert.asset ? ` [${alert.asset}]` : '';
 
   const lines = [
-    `${meta.emoji} **${meta.label}${asset}**`,
-    `> **${alert.headline || 'Intelligence Signal'}**`,
+    `${meta.emoji} **${alert.headline || 'Intelligence Signal'}**`,
+    `\`${meta.label}${asset}\``,
     ``,
   ];
 
   if (alert.before_the_move) {
-    lines.push(`**📍 BEFORE THE MOVE**\n${alert.before_the_move.slice(0, 500)}`);
+    lines.push(`**📍 BEFORE THE MOVE**\n${alert.before_the_move.slice(0, 600)}`);
     lines.push('');
   }
   if (alert.the_truth) {
-    lines.push(`**🔎 THE TRUTH**\n${alert.the_truth.slice(0, 500)}`);
+    lines.push(`**🔎 THE TRUTH**\n${alert.the_truth.slice(0, 600)}`);
     lines.push('');
   }
   if (alert.what_it_means) {
-    lines.push(`**⚡ WHAT IT MEANS**\n${alert.what_it_means.slice(0, 500)}`);
+    lines.push(`**⚡ WHAT IT MEANS**\n${alert.what_it_means.slice(0, 600)}`);
     lines.push('');
   }
-
-  lines.push(`**CONFIDENCE:** ${conf}%`);
 
   const src = alert.source_data || {};
   if (src.url) lines.push(`**SOURCE:** <${src.url}>`);
 
+  lines.push(`**CONFIDENCE:** ${conf}%`);
   lines.push(`-# ${alert.disclaimer || 'This is truth and knowledge, not investment advice.'}`);
   lines.push(`-# RareForm United — Backdoor Vision · rareformu.io`);
 
