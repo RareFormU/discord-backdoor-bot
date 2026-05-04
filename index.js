@@ -21,10 +21,13 @@ if (missing.length) {
   process.exit(1);
 }
 
-const ALERTS_URL     = process.env.ALERTS_URL || 'https://rareformu.io/data/alerts.json';
-const CHANNEL_ID     = process.env.DISCORD_CHANNEL_ID;
-const POLL_INTERVAL  = 5 * 60 * 1000; // 5 minutes
-const MAX_PER_POLL   = 5;              // cap burst posts per cycle
+// Supabase replaces the old static alerts.json — set SUPABASE_URL + SUPABASE_ANON_KEY in Railway
+const SUPABASE_URL      = process.env.SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
+const ALERTS_URL        = process.env.ALERTS_URL || 'https://rareformu.io/data/alerts.json';
+const CHANNEL_ID        = process.env.DISCORD_CHANNEL_ID;
+const POLL_INTERVAL     = 5 * 60 * 1000; // 5 minutes
+const MAX_PER_POLL      = 5;              // cap burst posts per cycle
 
 // ── Signal metadata ────────────────────────────────────────────────────────────
 const SIGNAL_META = {
@@ -51,10 +54,48 @@ client.once('ready', () => {
   setInterval(poll, POLL_INTERVAL);
 });
 
-// ── Fetch alerts from CDN ──────────────────────────────────────────────────────
+// ── Fetch alerts — Supabase preferred, falls back to static URL ───────────────
 function fetchAlerts() {
+  if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+    return fetchFromSupabase();
+  }
+  return fetchFromUrl(ALERTS_URL);
+}
+
+function fetchFromSupabase() {
+  const url = `${SUPABASE_URL}/rest/v1/rfu_alerts?select=payload&order=created_at.desc&limit=100`;
+  const parsed = new URL(url);
   return new Promise((resolve, reject) => {
-    const req = https.get(ALERTS_URL, { timeout: 15000 }, res => {
+    const req = https.get({
+      hostname: parsed.hostname,
+      path: parsed.pathname + parsed.search,
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      timeout: 15000,
+    }, res => {
+      let data = '';
+      res.on('data', chunk => (data += chunk));
+      res.on('end', () => {
+        try {
+          const rows = JSON.parse(data);
+          // Supabase returns [{payload: {...}}, ...] — unwrap
+          const alerts = Array.isArray(rows) ? rows.map(r => r.payload || r) : [];
+          resolve(alerts);
+        } catch (e) {
+          reject(e);
+        }
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('supabase timeout')); });
+  });
+}
+
+function fetchFromUrl(url) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { timeout: 15000 }, res => {
       let data = '';
       res.on('data', chunk => (data += chunk));
       res.on('end', () => {
