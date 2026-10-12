@@ -4,7 +4,9 @@
   "description": "RareForm United — Backdoor Vision Discord alert bot",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "test": "node --test alert-evidence.test.cjs",
+    "build": "node --check index.js && node --check alert-evidence.cjs"
   },
   "engines": {
     "node": ">=18.0.0"

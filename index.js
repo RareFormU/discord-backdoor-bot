@@ -7,6 +7,7 @@
  */
 
 require('dotenv').config();
+const {verifyAlert,rpcFromEnv,reservePublication,evidenceMessage}=require('./alert-evidence.cjs');
 
 const http = require('http');
 http.createServer((req, res) => res.end('OK')).listen(process.env.PORT || 3000);
@@ -30,14 +31,7 @@ const POLL_INTERVAL     = 5 * 60 * 1000; // 5 minutes
 const MAX_PER_POLL      = 5;              // cap burst posts per cycle
 
 // ── Signal metadata ────────────────────────────────────────────────────────────
-const SIGNAL_META = {
-  INSTITUTIONAL_POSITIONING: { emoji: '🏦', color: 0xC9A84C, label: 'Institutional Positioning' },
-  PREDICTION_SHIFT:          { emoji: '📉', color: 0xFF3D6B, label: 'Prediction Market Shift'   },
-  MACRO_CONTEXT:             { emoji: '🌐', color: 0x00FFC8, label: 'Macro Intelligence'         },
-  SHADOW_KNOWLEDGE:          { emoji: '👁',  color: 0xFFB830, label: 'Shadow Knowledge Alert'    },
-};
-
-const DEFAULT_META = { emoji: '🔍', color: 0x888888, label: 'Intelligence Signal' };
+const SIGNAL_META = { ONCHAIN_ACTIVITY:{color:0xC9A84C,label:'On-chain activity'} };
 
 // ── Alert deduplication ────────────────────────────────────────────────────────
 const seenIds = new Set();
@@ -155,7 +149,7 @@ async function poll() {
         if (err.code === 50013 || err.message?.includes('Missing Permissions')) {
           console.warn('[poll] Missing permissions — falling back to text');
           try {
-            await channel.send(buildText(alert));
+            // No text retry: an ambiguous send failure must not publish a duplicate.
           } catch (textErr) {
             console.error('[poll] Text fallback failed:', textErr.message);
           }
@@ -175,103 +169,17 @@ async function poll() {
 // ── Build Discord embed (v3 intelligence format) ───────────────────────────────
 // HEADLINE → title | sections → fields | confidence + signal → footer
 function buildEmbed(alert) {
-  const signal = alert.signal_type || 'UNKNOWN';
-  const meta   = SIGNAL_META[signal] || DEFAULT_META;
-
-  const conf    = alert.confidence || 0;
-  const confPct = Math.round(conf * 100);
-  const confBar = '\u2588'.repeat(Math.floor(confPct / 10)) + '\u2591'.repeat(10 - Math.floor(confPct / 10));
-
-  const asset      = alert.asset ? ` [${alert.asset}]` : '';
-  const headline   = (alert.headline || 'Intelligence Signal').slice(0, 256);
-  const disclaimer = alert.disclaimer || 'This is truth and knowledge, not investment advice.';
-
-  const embed = new EmbedBuilder()
-    .setColor(meta.color)
-    .setTitle(`${meta.emoji} ${headline}`)
-    .setFooter({
-      text: `${confPct}% confidence  |  ${meta.label}${asset}  |  RareForm United — rareformu.io`,
-    })
-    .setTimestamp(alert.timestamp ? new Date(alert.timestamp) : new Date());
-
-  if (alert.before_the_move) {
-    embed.addFields({
-      name:   '📍 BEFORE THE MOVE',
-      value:  alert.before_the_move.slice(0, 1024),
-      inline: false,
-    });
-  }
-
-  if (alert.the_truth) {
-    embed.addFields({
-      name:   '🔎 THE TRUTH',
-      value:  alert.the_truth.slice(0, 1024),
-      inline: false,
-    });
-  }
-
-  if (alert.what_it_means) {
-    embed.addFields({
-      name:   '⚡ WHAT IT MEANS',
-      value:  alert.what_it_means.slice(0, 1024),
-      inline: false,
-    });
-  }
-
-  const src = alert.source_data || {};
-  if (src.url) {
-    embed.addFields({ name: 'SOURCE', value: src.url.slice(0, 512), inline: false });
-  }
-
-  embed.addFields({
-    name:   '\u26a0\ufe0f DISCLAIMER',
-    value:  `*${disclaimer}*`,
-    inline: false,
-  });
-
-  return embed;
+  return new EmbedBuilder().setTitle('On-chain activity').setDescription(evidenceMessage(alert)).setFooter({text:'RareForm United'});
 }
 
 // ── Plain-text fallback ────────────────────────────────────────────────────────
-function buildText(alert) {
-  const signal  = alert.signal_type || 'INTELLIGENCE SIGNAL';
-  const meta    = SIGNAL_META[signal] || DEFAULT_META;
-  const conf    = Math.round((alert.confidence || 0) * 100);
-  const asset   = alert.asset ? ` [${alert.asset}]` : '';
-
-  const lines = [
-    `${meta.emoji} **${alert.headline || 'Intelligence Signal'}**`,
-    `\`${meta.label}${asset}\``,
-    ``,
-  ];
-
-  if (alert.before_the_move) {
-    lines.push(`**📍 BEFORE THE MOVE**\n${alert.before_the_move.slice(0, 600)}`);
-    lines.push('');
-  }
-  if (alert.the_truth) {
-    lines.push(`**🔎 THE TRUTH**\n${alert.the_truth.slice(0, 600)}`);
-    lines.push('');
-  }
-  if (alert.what_it_means) {
-    lines.push(`**⚡ WHAT IT MEANS**\n${alert.what_it_means.slice(0, 600)}`);
-    lines.push('');
-  }
-
-  const src = alert.source_data || {};
-  if (src.url) lines.push(`**SOURCE:** <${src.url}>`);
-
-  lines.push(`**CONFIDENCE:** ${conf}%`);
-  lines.push(`-# ${alert.disclaimer || 'This is truth and knowledge, not investment advice.'}`);
-  lines.push(`-# RareForm United — Backdoor Vision · rareformu.io`);
-
-  return lines.join('\n');
-}
+function buildText(alert) { return evidenceMessage(alert); }
 
 // ── Post a single alert ────────────────────────────────────────────────────────
 async function postAlert(channel, alert) {
-  const embed = buildEmbed(alert);
-  await channel.send({ embeds: [embed] });
+  const safe=await verifyAlert(alert,rpcFromEnv());
+  if(!safe||!await reservePublication(safe,'discord:'+channel.id))return false;
+  await channel.send({content:evidenceMessage(safe),allowedMentions:{parse:[]}});
 
   const signal = alert.signal_type || 'UNKNOWN';
   const conf   = Math.round((alert.confidence || 0) * 100);
